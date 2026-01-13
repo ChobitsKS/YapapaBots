@@ -8,8 +8,8 @@ let model;
 
 if (API_KEY) {
     genAI = new GoogleGenerativeAI(API_KEY);
-    // Using gemini-1.5-flash for speed and cost-effectiveness (free tier friendly)
-    model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Switching to gemini-pro (stable) to fix 404 issue
+    model = genAI.getGenerativeModel({ model: "gemini-pro" });
 }
 
 async function generateResponse(userMessage, contextData) {
