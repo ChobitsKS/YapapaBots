@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require('axios'); // Use axios for direct diagnostic fetch
 require('dotenv').config();
 
 const API_KEY = process.env.GEMINI_API_KEY;
@@ -6,34 +7,62 @@ const API_KEY = process.env.GEMINI_API_KEY;
 let genAI;
 let model;
 
-// Initialization
+// Initialization and Diagnostics
 if (API_KEY) {
     genAI = new GoogleGenerativeAI(API_KEY);
-    // Default to flash, but we will verify availability
     model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // DEBUG: List available models to console on startup
-    listAvailableModels();
+    // Run diagnostic immediately
+    checkAvailableModels();
+} else {
+    console.error("!!! API KEY IS MISSING IN ENV VARIABLES !!!");
 }
 
-async function listAvailableModels() {
+async function checkAvailableModels() {
+    console.log("--- DIAGNOSTIC START: Checking Available Models ---");
     try {
-        if (!genAI) return;
-        const modelQuery = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Dummy to get client
-        // Note: The SDK doesn't have a direct 'listModels' on the client instance in all versions,
-        // but we can try a direct fetch or standard check. 
-        // Actually, for this specific SDK version, we blindly try to use the model.
-        // Let's just log that we are attempting to use the key.
-        console.log("Attempting to initialize Gemini with Key: " + API_KEY.substring(0, 5) + "...");
-    } catch (e) {
-        console.error("Error checking models:", e);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`;
+        const response = await axios.get(url);
+
+        console.log("API Connection: SUCCESS");
+        console.log("Available Models for this Key:");
+
+        const models = response.data.models;
+        let foundFlash = false;
+
+        if (models && models.length > 0) {
+            models.forEach(m => {
+                console.log(` - ${m.name}`);
+                if (m.name.includes('gemini-1.5-flash')) foundFlash = true;
+            });
+        } else {
+            console.log("No models returned. This is very strange.");
+        }
+
+        if (!foundFlash) {
+            console.error("!!! CRITICAL: gemini-1.5-flash is NOT in the list. Change model or create new Key. !!!");
+        } else {
+            console.log(">>> gemini-1.5-flash IS AVAILABLE. The code should work. <<<");
+        }
+
+    } catch (error) {
+        console.log("--- DIAGNOSTIC FAILED ---");
+        if (error.response) {
+            console.error(`Status: ${error.response.status}`);
+            console.error(`Data: ${JSON.stringify(error.response.data)}`);
+            if (error.response.status === 400 && error.response.data.error.message.includes('API key not valid')) {
+                console.error(">>> YOUR API KEY IS INVALID. Please get a new one from aistudio.google.com <<<");
+            }
+        } else {
+            console.error(error.message);
+        }
     }
+    console.log("--- DIAGNOSTIC END ---");
 }
 
 async function generateResponse(userMessage, contextData) {
     if (!model) {
-        console.error("Gemini API Key is missing.");
-        return "ขออภัย ระบบ AI ยังไม่พร้อมใช้งาน (ติดต่อ Admin)";
+        return "ขออภัย ระบบ AI ยังไม่พร้อมใช้งาน (API Key Invalid)";
     }
 
     try {
@@ -50,21 +79,12 @@ ${contextData}
 
         const fullPrompt = `${systemInstruction}\n\nคำถามจากลูกค้า: ${userMessage}\nคำตอบ:`;
 
-        // Generate content
         const result = await model.generateContent(fullPrompt);
         const response = await result.response;
         return response.text();
 
     } catch (error) {
-        console.error('Error in AI generation FULL DETAILS:', error);
-
-        // Detailed error logging for user
-        if (error.message && error.message.includes('404')) {
-            console.error('!!! 404 ERROR DETECTED !!!');
-            console.error('This usually means the API Key is valid but cannot access this specifc model.');
-            console.error('Please check if "Generative Language API" is enabled in Google Cloud Console.');
-        }
-
+        console.error('Error in AI generation:', error.message);
         return "ขออภัย เกิดข้อขัดข้องในการประมวลผลคำตอบ (API Error)";
     }
 }
