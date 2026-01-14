@@ -52,6 +52,12 @@ app.post('/webhook', async (req, res) => {
 
                 // Check if it's an echo (Admin replied via Page Manager)
                 if (webhook_event.message && webhook_event.message.is_echo) {
+                    // Ignore BOT's own messages
+                    if (webhook_event.message.metadata === "BOT_MESSAGE") {
+                        // console.log("Bot echo ignored.");
+                        continue;
+                    }
+
                     const userPsid = webhook_event.recipient.id; // Recipient is the User
                     console.log(`Admin replied to ${userPsid}. Switching to HUMAN mode.`);
                     const session = sessionService.getSession(userPsid);
