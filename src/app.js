@@ -49,6 +49,19 @@ app.post('/webhook', async (req, res) => {
         for (const entry of body.entry) {
             if (entry.messaging && entry.messaging.length > 0) {
                 const webhook_event = entry.messaging[0];
+
+                // Check if it's an echo (Admin replied via Page Manager)
+                if (webhook_event.message && webhook_event.message.is_echo) {
+                    const userPsid = webhook_event.recipient.id; // Recipient is the User
+                    console.log(`Admin replied to ${userPsid}. Switching to HUMAN mode.`);
+                    const session = sessionService.getSession(userPsid);
+                    if (session) {
+                        sessionService.setMode(userPsid, 'HUMAN');
+                        sessionService.updateActivity(userPsid);
+                    }
+                    continue; // Skip processing for bot
+                }
+
                 const sender_psid = webhook_event.sender.id;
 
                 if (webhook_event.message && webhook_event.message.text) {
@@ -81,7 +94,7 @@ async function handleMessage(sender_psid, received_message) {
         }
 
         // 3. Check for switching to HUMAN
-        if (received_message.includes('ติดต่อเจ้าหน้าที่') || received_message.includes('เจ้าหน้าที่') || received_message.includes('คุยกับคน')) {
+        if (received_message.includes('ติดต่อเจ้าหน้าที่') || received_message.includes('เจ้าหน้าที่') || received_message.includes('คุยกับคน') || received_message.includes('คุยกับเจ้าหน้าที่')) {
             sessionService.setMode(sender_psid, 'HUMAN');
             await facebookService.sendMessage(sender_psid, "ระบบได้ส่งต่อให้เจ้าหน้าที่แล้วค่ะ กรุณารอสักครู่นะคะ (หากต้องการจบการสนทนา พิมพ์ 'จบการสนทนา')");
             return;
@@ -92,8 +105,8 @@ async function handleMessage(sender_psid, received_message) {
         // Add User Message to History
         sessionService.addToHistory(sender_psid, 'user', received_message);
 
-        // Get Context from Google Sheet
-        const context = await sheetService.getDataFromSheet();
+        // Get Context from Google Sheet (Smart Match)
+        const context = await sheetService.findRelevantData(received_message);
 
         // Generate with History
         const history = sessionService.getHistory(sender_psid);

@@ -1,7 +1,7 @@
 const sessions = new Map();
 
 // Constants
-const TIMEOUT_MS = 5 * 60 * 1000; // 5 Minutes
+const TIMEOUT_MS = 1 * 60 * 1000; // 1 Minute (Auto-close Human mode)
 const MAX_HISTORY = 10; // Keep last 10 exchanges
 
 const getSession = (psid) => {
