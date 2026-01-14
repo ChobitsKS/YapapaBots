@@ -20,45 +20,64 @@ async function generateResponse(userMessage, contextData) {
 ${contextData}
 `;
 
-    // Direct API Call to bypass SDK version issues
-    // Using gemini-1.5-flash directly
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+    const models = [
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash-001",
+        "gemini-pro",
+        "gemini-1.0-pro"
+    ];
 
-    const requestBody = {
-        contents: [
-            {
-                parts: [
-                    { text: systemInstruction + "\n\nคำถาม: " + userMessage }
-                ]
+    for (const model of models) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
+
+        console.log(`Trying model: ${model}...`);
+
+        const requestBody = {
+            contents: [
+                {
+                    parts: [
+                        { text: systemInstruction + "\n\nคำถาม: " + userMessage }
+                    ]
+                }
+            ]
+        };
+
+        try {
+            const response = await axios.post(url, requestBody, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.data && response.data.candidates && response.data.candidates.length > 0) {
+                const aiText = response.data.candidates[0].content.parts[0].text;
+                return aiText;
             }
-        ]
-    };
+            // If we get here but no candidates, it's a valid response but empty. 
+            // Arguably we should just return, but maybe try next model? 
+            // For now, let's assume empty candidates is a failure of the model generation, not connection.
+            // But usually 404 is the connection/model error.
 
-    try {
-        const response = await axios.post(url, requestBody, {
-            headers: {
-                'Content-Type': 'application/json'
+        } catch (error) {
+            console.error(`Error with model ${model}:`, error.message);
+
+            if (error.response) {
+                // If it's 404, we continue to next model
+                if (error.response.status === 404) {
+                    console.log(`Model ${model} not found (404), trying next...`);
+                    continue;
+                }
+                // If other error (400, 403, 500), it might be request body or key issue, so maybe don't retry?
+                // But specifically for 'Not Found' (404) or 'Method Not Allowed' (405) we should retry.
+                if (error.response.status !== 404) {
+                    console.error('Response Data:', JSON.stringify(error.response.data));
+                }
             }
-        });
-
-        if (response.data && response.data.candidates && response.data.candidates.length > 0) {
-            const aiText = response.data.candidates[0].content.parts[0].text;
-            return aiText;
-        } else {
-            return "ขออภัย AI ไม่ตอบสนอง (No Candidates)";
         }
-
-    } catch (error) {
-        console.error('Error in AI generation (Axios):', error.message);
-        if (error.response) {
-            console.error('Response Data:', JSON.stringify(error.response.data));
-            // Log if model not found to confirm
-            if (error.response.status === 404) {
-                return "ขออภัย ไม่พบโมเดล AI (404 Model Not Found) - กรุณาเช็ค API Key/Project";
-            }
-        }
-        return "ขออภัย เกิดข้อขัดข้องในการประมวลผลคำตอบ";
     }
+
+    return "ขออภัย ระบบ AI ไม่สามารถใช้งานได้ในขณะนี้ (All models failed)";
 }
 
 module.exports = {
