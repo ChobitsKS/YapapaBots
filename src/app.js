@@ -81,7 +81,7 @@ async function handleMessage(sender_psid, received_message) {
         }
 
         // 3. Check for switching to HUMAN
-        if (received_message.includes('ติดต่อเจ้าหน้าที่') || received_message.includes('คุยกับคน')) {
+        if (received_message.includes('ติดต่อเจ้าหน้าที่') || received_message.includes('เจ้าหน้าที่') || received_message.includes('คุยกับคน')) {
             sessionService.setMode(sender_psid, 'HUMAN');
             await facebookService.sendMessage(sender_psid, "ระบบได้ส่งต่อให้เจ้าหน้าที่แล้วค่ะ กรุณารอสักครู่นะคะ (หากต้องการจบการสนทนา พิมพ์ 'จบการสนทนา')");
             return;
