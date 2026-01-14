@@ -3,13 +3,13 @@ require('dotenv').config();
 
 const API_KEY = process.env.GEMINI_API_KEY;
 
-async function generateResponse(userMessage, contextData) {
+async function generateResponse(userMessage, contextData, history = []) {
     if (!API_KEY) {
         console.error("Gemini API Key is missing.");
         return "ขออภัย ระบบอัตโนมัติ ยังไม่พร้อมใช้งาน";
     }
 
-    const systemInstruction = `
+    const systemPrompt = `
 คุณคือ เจ้าหน้าที่ดูแลเพจ Facebook ของโรงเรียนแพทย์และวิทยาศาสตร์สุขภาพ
 มีบุคลิกสุภาพ เป็นมิตร อบอุ่น ให้ข้อมูลชัดเจน และช่วยเหลือผู้สอบถามอย่างเต็มใจ
 ใช้สรรพนามผู้หญิง และตอบด้วยภาษาพูดที่สุภาพ เข้าใจง่าย ไม่เป็นทางการจนเกินไป
@@ -21,7 +21,7 @@ async function generateResponse(userMessage, contextData) {
 3. ข้อกำหนดสำคัญ (ห้ามฝ่าฝืนเด็ดขาด)
    - หากผู้ใช้ถามคำถามที่ เฉพาะเจาะจง หรือ นอกเหนือจากข้อมูลในระบบ
    - หรือเป็นข้อมูลที่ไม่แน่ใจ / ไม่มีระบุไว้ชัดเจน
-   - ต้องตอบด้วยข้อความนี้เท่านั้น “ขออภัยค่ะ ฉันไม่มีข้อมูลในส่วนนี้ คุณสามารถทิ้งข้อความสอบถามไว้ได้เลย เดี๋ยวจะมีเจ้าหน้าที่เข้ามาตอบกลับค่ะ”
+   - ต้องตอบด้วยข้อความนี้เท่านั้น “ขออภัยค่ะ ฉันไม่มีข้อมูลในส่วนนี้ คุณสามารถทิ้งข้อความสอบถามไว้ได้เลยนะคะ เดี๋ยวจะมีเจ้าหน้าที่เข้ามาตอบกลับค่ะ”
    - ห้ามเดา ห้ามสมมติ หรือสร้างข้อมูลขึ้นมาเองโดยเด็ดขาด
 4. สไตล์การตอบ
    - สุภาพ น่าฟัง ใจเย็น
@@ -32,72 +32,61 @@ async function generateResponse(userMessage, contextData) {
 ${contextData}
 `;
 
-    const models = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-flash-latest",
-        "gemini-pro-latest",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-pro"
+    // 1. Single efficient model
+    const MODEL_NAME = "gemini-2.0-flash";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
+
+    // 2. Prepare Contents with History
+    // Combine history with current message
+    // Note: History format expected: [{ role: 'user', parts: [...] }, { role: 'model', parts: [...] }]
+    const contents = [
+        ...history,
+        {
+            role: "user",
+            parts: [{ text: userMessage }]
+        }
     ];
 
-    for (const model of models) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
+    const requestBody = {
+        // 3. System Instruction (Separate from User Content)
+        system_instruction: {
+            parts: [{ text: systemPrompt }]
+        },
+        contents: contents,
+        generationConfig: {
+            maxOutputTokens: 500, // Save quota
+            temperature: 0.7
+        }
+    };
 
-        console.log(`Trying model: ${model}...`);
+    try {
+        console.log(`Sending request to ${MODEL_NAME}...`);
+        const response = await axios.post(url, requestBody, {
+            headers: { 'Content-Type': 'application/json' }
+        });
 
-        const requestBody = {
-            contents: [
-                {
-                    parts: [
-                        { text: systemInstruction + "\n\nคำถาม: " + userMessage }
-                    ]
-                }
-            ]
-        };
+        if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+            return response.data.candidates[0].content.parts[0].text;
+        }
 
-        try {
-            const response = await axios.post(url, requestBody, {
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
+    } catch (error) {
+        // 4. Handle Quota (429) Friendly Message
+        if (error.response?.status === 429) {
+            console.warn("Quota Exceeded! (429)");
+            return "ขออภัยค่ะ ขณะนี้มีผู้ใช้งานจำนวนมากทำให้ระบบประมวลผลไม่ทัน กรุณารอสักครู่แล้วพิมพ์ถามใหม่อีกครั้งนะคะ";
+        }
 
-            if (response.data && response.data.candidates && response.data.candidates.length > 0) {
-                const aiText = response.data.candidates[0].content.parts[0].text;
-                return aiText;
-            }
-            // If we get here but no candidates, it's a valid response but empty. 
-            // Arguably we should just return, but maybe try next model? 
-            // For now, let's assume empty candidates is a failure of the model generation, not connection.
-
-        } catch (error) {
-            console.error(`Error with model ${model}:`, error.message);
-
-            if (error.response) {
-                // Handle 429 (Rate Limit / Quota Exceeded)
-                if (error.response.status === 429) {
-                    console.warn(`Quota exceeded for ${model}. Stopping retries.`);
-                    // Usually quota is shared across models in the same project/tier, so retrying might not help.
-                    // But we can try to return a friendly message immediately.
-                    return "ขออภัยค่ะ ขณะนี้มีผู้ใช้งานจำนวนมากทำให้ระบบประมวลผลไม่ทัน กรุณารอสักครู่แล้วพิมพ์ถามใหม่อีกครั้งนะคะ";
-                }
-
-                // If it's 404, we continue to next model
-                if (error.response.status === 404) {
-                    console.log(`Model ${model} not found (404), trying next...`);
-                    continue;
-                }
-
-                if (error.response.status !== 404) {
-                    console.error('Response Data:', JSON.stringify(error.response.data));
-                }
+        console.error(`Error with model ${MODEL_NAME}:`, error.message);
+        if (error.response) {
+            console.error('Response Data:', JSON.stringify(error.response.data));
+            // Fallback if model not found (rare if hardcoded to a known good one)
+            if (error.response.status === 404) {
+                return "ขออภัย ไม่พบโมเดล AI (ติดต่อผู้ดูแลระบบ)";
             }
         }
     }
 
-    return "ขออภัย ระบบอัตโนมัติไม่สามารถใช้งานได้ในขณะนี้ (All models failed)";
+    return "ขออภัย ระบบอัตโนมัติไม่สามารถใช้งานได้ในขณะนี้ (System Error)";
 }
 
 module.exports = {
