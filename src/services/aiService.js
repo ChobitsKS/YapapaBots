@@ -6,7 +6,7 @@ const API_KEY = process.env.GEMINI_API_KEY;
 async function generateResponse(userMessage, contextData) {
     if (!API_KEY) {
         console.error("Gemini API Key is missing.");
-        return "ขออภัย ระบบ AI ยังไม่พร้อมใช้งาน (ติดต่อเจ้าหน้าที่)";
+        return "ขออภัย ระบบอัตโนมัติ ยังไม่พร้อมใช้งาน";
     }
 
     const systemInstruction = `
@@ -21,7 +21,7 @@ async function generateResponse(userMessage, contextData) {
 3. ข้อกำหนดสำคัญ (ห้ามฝ่าฝืนเด็ดขาด)
    - หากผู้ใช้ถามคำถามที่ เฉพาะเจาะจง หรือ นอกเหนือจากข้อมูลในระบบ
    - หรือเป็นข้อมูลที่ไม่แน่ใจ / ไม่มีระบุไว้ชัดเจน
-   - ต้องตอบด้วยข้อความนี้เท่านั้น “ขออภัยค่ะ ฉันยังไม่มีข้อมูลในส่วนนี้ รบกวนพิมพ์ 'ติดต่อเจ้าหน้าที่' โดยตรงนะคะ”
+   - ต้องตอบด้วยข้อความนี้เท่านั้น “ขออภัยค่ะ ฉันไม่มีข้อมูลในส่วนนี้ คุณสามารถทิ้งข้อความสอบถามไว้ได้เลย เดี๋ยวจะมีเจ้าหน้าที่เข้ามาตอบกลับค่ะ”
    - ห้ามเดา ห้ามสมมติ หรือสร้างข้อมูลขึ้นมาเองโดยเด็ดขาด
 4. สไตล์การตอบ
    - สุภาพ น่าฟัง ใจเย็น
@@ -73,25 +73,35 @@ ${contextData}
             // For now, let's assume empty candidates is a failure of the model generation, not connection.
             // But usually 404 is the connection/model error.
 
-        } catch (error) {
-            console.error(`Error with model ${model}:`, error.message);
+            return "ขออภัย ระบบอัตโนมัติ ไม่สามารถใช้งานได้ในขณะนี้ (ระบบขัดข้อง)";
+        }
 
-            if (error.response) {
-                // If it's 404, we continue to next model
-                if (error.response.status === 404) {
-                    console.log(`Model ${model} not found (404), trying next...`);
-                    continue;
-                }
-                // If other error (400, 403, 500), it might be request body or key issue, so maybe don't retry?
-                // But specifically for 'Not Found' (404) or 'Method Not Allowed' (405) we should retry.
-                if (error.response.status !== 404) {
-                    console.error('Response Data:', JSON.stringify(error.response.data));
-                }
+        } catch (error) {
+        console.error(`Error with model ${model}:`, error.message);
+
+        if (error.response) {
+            // Handle 429 (Rate Limit / Quota Exceeded)
+            if (error.response.status === 429) {
+                console.warn(`Quota exceeded for ${model}. Stopping retries.`);
+                // Usually quota is shared across models in the same project/tier, so retrying might not help.
+                // But we can try to return a friendly message immediately.
+                return "ขออภัยค่ะ ขณะนี้มีผู้ใช้งานจำนวนมากทำให้ระบบประมวลผลไม่ทัน กรุณารอสักครู่แล้วพิมพ์ถามใหม่อีกครั้งนะคะ";
+            }
+
+            // If it's 404, we continue to next model
+            if (error.response.status === 404) {
+                console.log(`Model ${model} not found (404), trying next...`);
+                continue;
+            }
+
+            if (error.response.status !== 404) {
+                console.error('Response Data:', JSON.stringify(error.response.data));
             }
         }
     }
+}
 
-    return "ขออภัย ระบบ AI ไม่สามารถใช้งานได้ในขณะนี้ (All models failed)";
+return "ขออภัย ระบบอัตโนมัติไม่สามารถใช้งานได้ในขณะนี้ (All models failed)";
 }
 
 module.exports = {
