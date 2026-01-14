@@ -14,7 +14,8 @@ async function sendMessage(recipientId, text) {
             id: recipientId
         },
         message: {
-            text: text
+            text: text,
+            metadata: "BOT_MESSAGE"
         }
     };
 
