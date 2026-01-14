@@ -71,37 +71,33 @@ ${contextData}
             // If we get here but no candidates, it's a valid response but empty. 
             // Arguably we should just return, but maybe try next model? 
             // For now, let's assume empty candidates is a failure of the model generation, not connection.
-            // But usually 404 is the connection/model error.
-
-            return "ขออภัย ระบบอัตโนมัติ ไม่สามารถใช้งานได้ในขณะนี้ (ระบบขัดข้อง)";
-        }
 
         } catch (error) {
-        console.error(`Error with model ${model}:`, error.message);
+            console.error(`Error with model ${model}:`, error.message);
 
-        if (error.response) {
-            // Handle 429 (Rate Limit / Quota Exceeded)
-            if (error.response.status === 429) {
-                console.warn(`Quota exceeded for ${model}. Stopping retries.`);
-                // Usually quota is shared across models in the same project/tier, so retrying might not help.
-                // But we can try to return a friendly message immediately.
-                return "ขออภัยค่ะ ขณะนี้มีผู้ใช้งานจำนวนมากทำให้ระบบประมวลผลไม่ทัน กรุณารอสักครู่แล้วพิมพ์ถามใหม่อีกครั้งนะคะ";
-            }
+            if (error.response) {
+                // Handle 429 (Rate Limit / Quota Exceeded)
+                if (error.response.status === 429) {
+                    console.warn(`Quota exceeded for ${model}. Stopping retries.`);
+                    // Usually quota is shared across models in the same project/tier, so retrying might not help.
+                    // But we can try to return a friendly message immediately.
+                    return "ขออภัยค่ะ ขณะนี้มีผู้ใช้งานจำนวนมากทำให้ระบบประมวลผลไม่ทัน กรุณารอสักครู่แล้วพิมพ์ถามใหม่อีกครั้งนะคะ";
+                }
 
-            // If it's 404, we continue to next model
-            if (error.response.status === 404) {
-                console.log(`Model ${model} not found (404), trying next...`);
-                continue;
-            }
+                // If it's 404, we continue to next model
+                if (error.response.status === 404) {
+                    console.log(`Model ${model} not found (404), trying next...`);
+                    continue;
+                }
 
-            if (error.response.status !== 404) {
-                console.error('Response Data:', JSON.stringify(error.response.data));
+                if (error.response.status !== 404) {
+                    console.error('Response Data:', JSON.stringify(error.response.data));
+                }
             }
         }
     }
-}
 
-return "ขออภัย ระบบอัตโนมัติไม่สามารถใช้งานได้ในขณะนี้ (All models failed)";
+    return "ขออภัย ระบบอัตโนมัติไม่สามารถใช้งานได้ในขณะนี้ (All models failed)";
 }
 
 module.exports = {
