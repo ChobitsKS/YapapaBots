@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const facebookService = require('./services/facebookService');
 const aiService = require('./services/aiService');
 const sheetService = require('./services/sheetService');
+const sessionService = require('./services/sessionService');
 
 dotenv.config();
 
@@ -43,18 +44,11 @@ app.post('/webhook', async (req, res) => {
     const body = req.body;
 
     if (body.object === 'page') {
-        // Returns a '200 OK' response to all requests
         res.status(200).send('EVENT_RECEIVED');
 
-        // Iterate over each entry - there may be multiple if batched
         for (const entry of body.entry) {
-            // Get the webhook event. entry.messaging is an array, but 
-            // will only contain one event, so we get index 0
             if (entry.messaging && entry.messaging.length > 0) {
                 const webhook_event = entry.messaging[0];
-                console.log(webhook_event);
-
-                // Get the sender PSID
                 const sender_psid = webhook_event.sender.id;
 
                 if (webhook_event.message && webhook_event.message.text) {
@@ -69,19 +63,68 @@ app.post('/webhook', async (req, res) => {
 
 async function handleMessage(sender_psid, received_message) {
     try {
-        // 1. Get context from Google Sheets
+        const session = sessionService.getSession(sender_psid);
+        const userMsgLower = received_message.toLowerCase().trim();
+
+        // 1. Check for switching back to BOT
+        if (userMsgLower === 'จบการสนทนา' || userMsgLower === 'end chat') {
+            sessionService.setMode(sender_psid, 'BOT');
+            await facebookService.sendMessage(sender_psid, "ระบบอัตโนมัติกลับมาทำงานแล้วค่ะ มีอะไรให้ช่วยอีกไหมคะ?");
+            return;
+        }
+
+        // 2. Check Mode
+        if (session.mode === 'HUMAN') {
+            sessionService.updateActivity(sender_psid);
+            // In HUMAN mode, bot does nothing. User waits for admin.
+            return;
+        }
+
+        // 3. Check for switching to HUMAN
+        if (received_message.includes('ติดต่อเจ้าหน้าที่') || received_message.includes('คุยกับคน')) {
+            sessionService.setMode(sender_psid, 'HUMAN');
+            await facebookService.sendMessage(sender_psid, "ระบบได้ส่งต่อให้เจ้าหน้าที่แล้วค่ะ กรุณารอสักครู่นะคะ (หากต้องการจบการสนทนา พิมพ์ 'จบการสนทนา')");
+            return;
+        }
+
+        // 4. BOT MODE: Generate Response
+
+        // Add User Message to History
+        sessionService.addToHistory(sender_psid, 'user', received_message);
+
+        // Get Context from Google Sheet
         const context = await sheetService.getDataFromSheet();
 
-        // 2. Generate response using Gemini
-        const responseText = await aiService.generateResponse(received_message, context);
+        // Generate with History
+        const history = sessionService.getHistory(sender_psid);
+        const responseText = await aiService.generateResponse(received_message, context, history);
 
-        // 3. Send response back to Facebook
+        // Add AI Response to History
+        sessionService.addToHistory(sender_psid, 'model', responseText);
+
+        // Send response back to Facebook
         await facebookService.sendMessage(sender_psid, responseText);
+
+        sessionService.updateActivity(sender_psid);
+
     } catch (error) {
         console.error('Error in handleMessage:', error);
         await facebookService.sendMessage(sender_psid, 'ขออภัย ระบบเกิดข้อขัดข้องชั่วคราว');
     }
 }
+
+// Timeout Checker (Runs every 1 minute)
+setInterval(async () => {
+    const timedOutUsers = sessionService.checkTimeouts();
+    for (const psid of timedOutUsers) {
+        console.log(`User ${psid} timed out from HUMAN mode.`);
+        try {
+            await facebookService.sendMessage(psid, "เนื่องจากไม่มีการตอบรับนานเกินไป ระบบจึงเปลี่ยนกลับเป็นโหมดอัตโนมัติค่ะ หากต้องการติดต่อเจ้าหน้าที่ใหม่ พิมพ์ 'ติดต่อเจ้าหน้าที่' ได้เลยนะคะ");
+        } catch (err) {
+            console.error("Error sending timeout message:", err);
+        }
+    }
+}, 60 * 1000);
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
