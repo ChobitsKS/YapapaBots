@@ -33,7 +33,7 @@ ${contextData}
 `;
 
     // 1. Single efficient model
-    const MODEL_NAME = "gemini-2.0-flash";
+    const MODEL_NAME = "gemini-1.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
 
     // 2. Prepare Contents with History
