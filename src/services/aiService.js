@@ -8,11 +8,9 @@ require('dotenv').config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ให้กำหนด model ผ่าน ENV หากต้องการ (ตัวอย่าง: GENAI_MODEL=models/gemini-pro)
-const DEFAULT_MODEL = process.env.GENAI_MODEL || 'models/text-bison-001';
-
+// ใช้ gemini-1.5-flash เป็นค่าเริ่มต้น
 const model = genAI.getGenerativeModel({
-    model: DEFAULT_MODEL,
+    model: "gemini-1.5-flash",
     generationConfig: {
         maxOutputTokens: 500,
         temperature: 0.7
@@ -46,6 +44,7 @@ async function generateResponse(userMessage, contextData, history) {
 ${contextStr}
 `;
 
+        // Create parts for the conversation
         const parts = [
             { role: 'user', parts: [{ text: systemInstruction }] }
         ];
