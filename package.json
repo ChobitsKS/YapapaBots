@@ -1,23 +1,26 @@
 {
-    "name": "fb-gemini-chatbot",
-    "version": "1.0.0",
-    "description": "Facebook Messenger Chatbot with Gemini AI and Google Sheets",
-    "main": "src/app.js",
-    "scripts": {
-        "start": "node src/app.js",
-        "dev": "node --watch src/app.js"
-    },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
-    "dependencies": {
-        "@google/generative-ai": "^0.21.0",
-        "axios": "^1.6.2",
-        "dotenv": "^16.3.1",
-        "express": "^4.18.2",
-        "googleapis": "^129.0.0"
-    },
-    "engines": {
-        "node": ">=18.0.0"
-    }
+  "name": "fb-gemini-chatbot-v3",
+  "version": "1.0.0",
+  "description": "Facebook Messenger Chatbot with Gemini AI and Google Sheets",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.1.3",
+    "axios": "^1.6.0",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "google-auth-library": "^9.0.0",
+    "google-spreadsheet": "^4.1.0",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
