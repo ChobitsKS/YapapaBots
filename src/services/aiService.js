@@ -2,56 +2,66 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const modelName = process.env.GENAI_MODEL || "gemini-1.5-flash-latest";
 
-// ✅ แก้ไข: ใช้ชื่อโมเดลที่เสถียรและมีอยู่จริง
-// หมายเหตุ: gemini-2.0 ยังเป็น experimental แนะนำให้ใช้ชื่อ 'gemini-2.0-flash-exp'
-// แต่เพื่อความชัวร์ที่ 100% ผมตั้ง default เป็น 'gemini-1.5-flash' ซึ่งเร็วและฟรีเหมือนกัน
-const modelName = process.env.GENAI_MODEL || "gemini-1.5-flash"; 
-
-console.log(`🧠 AI Service using model: ${modelName}`);
+console.log(`🧠 AI Service init with model: ${modelName}`);
 
 const model = genAI.getGenerativeModel({ model: modelName });
 
+// ฟังก์ชันสำหรับหน่วงเวลา (Sleep)
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function generateResponse(userMessage, contextData, chatHistory) {
-    try {
-        const systemInstruction = `
-            บริบท: คุณคือ AI ผู้ช่วยของโรงเรียนแพทย์และวิทยาศาสตร์สุขภาพ
-            หน้าที่: ตอบคำถามโดยใช้ข้อมูลจาก [Context] ที่ให้มาเป็นหลัก
-            
-            [Context ข้อมูล]:
-            ${contextData || "ไม่มีข้อมูลเพิ่มเติม"}
-
-            ข้อกำหนดการตอบ:
-            1. ตอบเป็นภาษาไทย สุภาพ กระชับ และเข้าใจง่าย
-            2. ห้ามแต่งเรื่องเอง ถ้าไม่มีข้อมูลใน Context ให้ตอบว่า:
-               "ขออภัย ยังไม่มีข้อมูล ทิ้งข้อความไว้ได้เลย เดี๋ยวเจ้าหน้าที่มาตอบ"
-        `;
-
-        const chat = model.startChat({
-            history: chatHistory,
-            generationConfig: {
-                maxOutputTokens: 500,
-                temperature: 0.7,
-            },
-            // หมายเหตุ: SDK บางเวอร์ชันต้องใส่ instruction ใน format นี้
-            systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] }
-        });
-
-        const result = await chat.sendMessage(userMessage);
-        const response = result.response.text();
-        return response.trim();
-
-    } catch (error) {
-        // ✅ ปรับปรุงการแสดง Error
-        console.error('❌ Gemini Error Details:', error.message);
+    const systemInstruction = `
+        บริบท: คุณคือ AI ผู้ช่วยของโรงเรียนแพทย์และวิทยาศาสตร์สุขภาพ
+        หน้าที่: ตอบคำถามโดยใช้ข้อมูลจาก [Context] ที่ให้มาเป็นหลัก
         
-        if (error.message.includes('404') || error.message.includes('Not Found')) {
-            console.error('⚠️ สาเหตุ: ชื่อ Model ไม่ถูกต้อง หรือ API Key ไม่รองรับ Model นี้');
-            console.error('👉 แนะนำ: ลองเปลี่ยน ENV GENAI_MODEL เป็น "gemini-1.5-flash"');
-        }
+        [Context ข้อมูล]:
+        ${contextData || "ไม่มีข้อมูลเพิ่มเติม"}
 
-        return "ขออภัย ระบบขัดข้องชั่วคราว (AI Error)";
+        ข้อกำหนดการตอบ:
+        1. ตอบเป็นภาษาไทย สุภาพ กระชับ และเข้าใจง่าย
+        2. ห้ามแต่งเรื่องเอง ถ้าไม่มีข้อมูลใน Context ให้ตอบว่า:
+           "ขออภัย ยังไม่มีข้อมูล ทิ้งข้อความไว้ได้เลย เดี๋ยวเจ้าหน้าที่มาตอบ"
+    `;
+
+    // ตั้งค่าการ Retry สูงสุด 3 ครั้ง
+    const maxRetries = 3;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+        try {
+            const chat = model.startChat({
+                history: chatHistory,
+                generationConfig: {
+                    maxOutputTokens: 500,
+                    temperature: 0.7,
+                },
+                systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] }
+            });
+
+            const result = await chat.sendMessage(userMessage);
+            const response = result.response.text();
+            return response.trim();
+
+        } catch (error) {
+            attempt++;
+            console.error(`❌ Gemini Error (Attempt ${attempt}/${maxRetries}):`, error.message);
+
+            // ถ้าเป็น Error 429 (Too Many Requests) หรือ 503 (Server Overload) ให้รอแล้วลองใหม่
+            if (error.message.includes('429') || error.message.includes('503')) {
+                const waitTime = attempt * 2000; // รอ 2วิ, 4วิ, 6วิ ตามลำดับ
+                console.log(`⏳ Quota Hit on Shared IP. Retrying in ${waitTime/1000}s...`);
+                await delay(waitTime);
+            } else {
+                // ถ้าเป็น Error อื่น (เช่น 404, Key ผิด) ให้ยอมแพ้เลย ไม่ต้อง Retry
+                break;
+            }
+        }
     }
+
+    // ถ้าลองครบ 3 ครั้งแล้วยังไม่ได้
+    return "ขออภัย ขณะนี้ระบบ AI มีผู้ใช้งานจำนวนมาก กรุณารอสักครู่แล้วถามใหม่อีกครั้งนะครับ";
 }
 
 module.exports = { generateResponse };
