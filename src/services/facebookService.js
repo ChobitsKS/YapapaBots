@@ -7,7 +7,11 @@ async function sendMessage(senderPsid, responseText) {
     try {
         const requestBody = {
             recipient: { id: senderPsid },
-            message: { text: responseText }
+            message: { 
+                text: responseText,
+                // ✅ เพิ่ม metadata เพื่อระบุว่าข้อความนี้มาจากบอท
+                metadata: "BOT_REPLY" 
+            }
         };
 
         await axios.post(

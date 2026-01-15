@@ -3,8 +3,13 @@ require('dotenv').config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ใช้ Model จาก Env หรือ Default เป็น gemini-2.0-flash
-const modelName = process.env.GENAI_MODEL || "gemini-2.0-flash";
+// ✅ แก้ไข: ใช้ชื่อโมเดลที่เสถียรและมีอยู่จริง
+// หมายเหตุ: gemini-2.0 ยังเป็น experimental แนะนำให้ใช้ชื่อ 'gemini-2.0-flash-exp'
+// แต่เพื่อความชัวร์ที่ 100% ผมตั้ง default เป็น 'gemini-1.5-flash' ซึ่งเร็วและฟรีเหมือนกัน
+const modelName = process.env.GENAI_MODEL || "gemini-1.5-flash"; 
+
+console.log(`🧠 AI Service using model: ${modelName}`);
+
 const model = genAI.getGenerativeModel({ model: modelName });
 
 async function generateResponse(userMessage, contextData, chatHistory) {
@@ -20,15 +25,15 @@ async function generateResponse(userMessage, contextData, chatHistory) {
             1. ตอบเป็นภาษาไทย สุภาพ กระชับ และเข้าใจง่าย
             2. ห้ามแต่งเรื่องเอง ถ้าไม่มีข้อมูลใน Context ให้ตอบว่า:
                "ขออภัย ยังไม่มีข้อมูล ทิ้งข้อความไว้ได้เลย เดี๋ยวเจ้าหน้าที่มาตอบ"
-            3. ห้ามแนะนำให้ผู้ใช้พิมพ์คำสั่งแปลกๆ
         `;
 
         const chat = model.startChat({
             history: chatHistory,
             generationConfig: {
-                maxOutputTokens: 500, // ประหยัด Token
+                maxOutputTokens: 500,
                 temperature: 0.7,
             },
+            // หมายเหตุ: SDK บางเวอร์ชันต้องใส่ instruction ใน format นี้
             systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] }
         });
 
@@ -37,14 +42,15 @@ async function generateResponse(userMessage, contextData, chatHistory) {
         return response.trim();
 
     } catch (error) {
-        console.error('❌ Gemini Error:', error);
+        // ✅ ปรับปรุงการแสดง Error
+        console.error('❌ Gemini Error Details:', error.message);
         
-        // กรณีโควต้าเต็ม (HTTP 429)
-        if (error.status === 429 || error.message.includes('429')) {
-            return "ขออภัย ขณะนี้มีผู้สอบถามเข้ามาจำนวนมาก กรุณารอสักครู่แล้วสอบถามใหม่นะครับ";
+        if (error.message.includes('404') || error.message.includes('Not Found')) {
+            console.error('⚠️ สาเหตุ: ชื่อ Model ไม่ถูกต้อง หรือ API Key ไม่รองรับ Model นี้');
+            console.error('👉 แนะนำ: ลองเปลี่ยน ENV GENAI_MODEL เป็น "gemini-1.5-flash"');
         }
-        
-        return "ขออภัย ยังไม่มีข้อมูล ทิ้งข้อความไว้ได้เลย เดี๋ยวเจ้าหน้าที่มาตอบ";
+
+        return "ขออภัย ระบบขัดข้องชั่วคราว (AI Error)";
     }
 }
 

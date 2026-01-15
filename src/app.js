@@ -13,7 +13,7 @@ app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 3000;
 
-// --- Webhook Verification (สำหรับ Facebook ตรวจสอบ) ---
+// --- Webhook Verification ---
 app.get('/webhook', (req, res) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -38,16 +38,30 @@ app.post('/webhook', async (req, res) => {
             const webhook_event = entry.messaging ? entry.messaging[0] : null;
 
             if (webhook_event) {
-                // 1. ตรวจจับ Admin ตอบกลับ (Echo Event)
+                // ---------------------------------------------------------
+                // 1. ตรวจจับ Echo (ข้อความที่เพจส่งออกไป)
+                // ---------------------------------------------------------
                 if (webhook_event.message && webhook_event.message.is_echo) {
-                    const recipientId = webhook_event.recipient.id; // User ที่ Admin คุยด้วย
+                    
+                    // ✅ แก้ไข: เช็คก่อนว่าเป็นบอทตอบเองหรือไม่?
+                    const metadata = webhook_event.message.metadata;
+                    if (metadata === "BOT_REPLY") {
+                        // ถ้าเป็นบอทตอบเอง ให้ปล่อยผ่าน ไม่ต้องทำอะไร
+                        // console.log("🤖 Bot echo received (Ignore)");
+                        continue; 
+                    }
+
+                    // ถ้าไม่ใช่บอท (แปลว่าเป็น Admin พิมพ์เองผ่าน Business Suite)
+                    const recipientId = webhook_event.recipient.id; // User ID ที่คุยด้วย
                     sessionService.handleAdminIntervention(recipientId);
-                    continue; // จบการทำงานรอบนี้
+                    continue; 
                 }
 
+                // ---------------------------------------------------------
                 // 2. ตรวจจับ User ส่งข้อความมา
+                // ---------------------------------------------------------
                 const senderPsid = webhook_event.sender.id;
-                if (webhook_event.message && webhook_event.message.text && !webhook_event.message.is_echo) {
+                if (webhook_event.message && webhook_event.message.text) {
                     const userMessage = webhook_event.message.text;
                     console.log(`📩 User ${senderPsid}: ${userMessage}`);
 
@@ -67,7 +81,7 @@ app.post('/webhook', async (req, res) => {
                             session.history
                         );
 
-                        // ส่งคำตอบ
+                        // ส่งคำตอบ (ฟังก์ชันนี้จะแนบ metadata: "BOT_REPLY" ไปด้วย)
                         await facebookService.sendMessage(senderPsid, aiReply);
 
                         // บันทึก Memory
