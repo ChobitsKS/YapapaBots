@@ -8,9 +8,12 @@ require('dotenv').config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ใช้ gemini-1.5-flash เป็นค่าเริ่มต้น
+// อนุญาตให้เปลี่ยน Model ผ่าน Environment Variable ได้ (เผื่อมีปัญหา 404/429)
+// แนะนำให้ลอง: gemini-1.5-flash, gemini-pro, gemini-1.0-pro
+const modelName = process.env.GENAI_MODEL || "gemini-1.5-flash";
+
 const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: modelName,
     generationConfig: {
         maxOutputTokens: 500,
         temperature: 0.7
