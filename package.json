@@ -1,25 +1,19 @@
 {
-  "name": "fb-gemini-chatbot-v3",
+  "name": "fb-gemini-chatbot-v5",
   "version": "1.0.0",
-  "description": "Medical School Chatbot with Gemini & Handover",
-  "main": "src/app.js",
+  "description": "Chatbot for Medical School using Gemini and Google Sheets",
+  "main": "index.js",
   "scripts": {
-    "start": "node src/app.js",
-    "dev": "nodemon src/app.js"
+    "start": "node index.js"
   },
   "dependencies": {
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.5",
     "express": "^4.18.2",
-    "body-parser": "^1.20.2",
-    "axios": "^1.6.2",
-    "dotenv": "^16.3.1",
-    "@google/generative-ai": "^0.21.0",
-    "googleapis": "^129.0.0",
-    "node-cache": "^5.1.2"
+    "googleapis": "^133.0.0",
+    "@google/generative-ai": "^0.2.1"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }
