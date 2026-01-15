@@ -8,27 +8,42 @@ const { JWT } = require('google-auth-library');
 require('dotenv').config();
 
 // ตั้งค่า Google Auth
-// รองรับทั้งแบบ JSON File Path และ JSON Object String (เพื่อความยืดหยุ่นตอน Deploy)
 let jwtClient;
-if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    // กรณีใส่ JSON ใน ENV (Render แนะนำวิธีนี้)
-    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-    jwtClient = new JWT({
-        email: creds.client_email,
-        key: creds.private_key,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-} else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    // กรณีใช้ไฟล์
-    const creds = require(process.env.GOOGLE_APPLICATION_CREDENTIALS);
-    jwtClient = new JWT({
-        email: creds.client_email,
-        key: creds.private_key,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
+
+// ตรวจสอบว่า GOOGLE_APPLICATION_CREDENTIALS เป็น JSON String หรือ Path
+// ในบาง Environment (เช่น Render) ผู้ใช้มักใส่ JSON Content ลงไปใน Environment Variable ตรงๆ
+const credentialsVar = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+let creds;
+
+try {
+    // ลอง Parse JSON ดูว่าใช่เนื้อหา Key หรือไม่
+    creds = JSON.parse(credentialsVar);
+} catch (e) {
+    // ถ้า Parse ไม่ผ่าน แสดงว่าเป็น File Path หรือ undefined
+    // ให้ library จัดการเอง (โหลดจาก path)
 }
 
-const doc = new GoogleSpreadsheet(process.env.SPREADSHEET_ID, jwtClient);
+if (creds) {
+    jwtClient = new JWT({
+        email: creds.client_email,
+        key: creds.private_key,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+} else if (credentialsVar) {
+    // กรณีเป็น File Path
+    try {
+        const fileCreds = require(credentialsVar);
+        jwtClient = new JWT({
+            email: fileCreds.client_email,
+            key: fileCreds.private_key,
+            scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        });
+    } catch (e) {
+        console.error("Error loading credentials from path:", e);
+    }
+}
+
+const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, jwtClient);
 
 // Cache System
 // Map<Keyword, { data: Row[], timestamp: number }>
