@@ -1,6 +1,6 @@
 /**
  * aiService.js
- * เชื่อมต่อ Gemini API และจัดการ System Instruction
+ * เชื่อมต่อ Gemini / Generative API และจัดการ System Instruction
  */
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -8,29 +8,30 @@ require('dotenv').config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// ให้กำหนด model ผ่าน ENV หากต้องการ (ตัวอย่าง: GENAI_MODEL=models/gemini-pro)
+const DEFAULT_MODEL = process.env.GENAI_MODEL || 'models/text-bison-001';
+
 const model = genAI.getGenerativeModel({
-    model: "models/gemini-pro",
+    model: DEFAULT_MODEL,
     generationConfig: {
-        maxOutputTokens: 500, // จำกัด Output
+        maxOutputTokens: 500,
         temperature: 0.7
     }
 });
 
 /**
- * สร้างคำตอบด้วย Gemini
- * @param {string} userMessage คำถามผู้ใช้
- * @param {string[]} contextData ข้อมูลจาก Sheets
- * @param {Array} history ประวัติการคุย
- * @returns {Promise<string>} คำตอบจาก AI
+ * สร้างคำตอบด้วย Gemini / Generative API
+ * @param {string} userMessage
+ * @param {string[]} contextData
+ * @param {Array} history
+ * @returns {Promise<string>}
  */
 async function generateResponse(userMessage, contextData, history) {
     try {
-        // สร้าง Context String
         const contextStr = contextData.length > 0
             ? "ข้อมูลอ้างอิง:\n" + contextData.map(d => `- ${d}`).join('\n')
             : "ไม่มีข้อมูลอ้างอิงเพิ่มเติม";
 
-        // System Instruction
         const systemInstruction = `
 บทบาท: คุณคือแอดมินเพจ "โรงเรียนแพทย์และวิทยาศาสตร์สุขภาพ"
 หน้าที่: ตอบคำถามผู้สนใจเกี่ยวกับหลักสูตร ค่าเทอม และข้อมูลโรงเรียน
@@ -38,7 +39,7 @@ async function generateResponse(userMessage, contextData, history) {
 1. ตอบเป็นภาษาไทย ให้กระชับ สุภาพ เป็นกันเอง
 2. ใช้ "ข้อมูลอ้างอิง" ที่ให้มาในการตอบคำถามเป็นหลัก
 3. ถ้าข้อมูลอ้างอิงมีคำตอบ ให้ตอบตามนั้น
-4. ถ้าข้อมูลอ้างอิง **ไม่มี** คำตอบ หรือไม่แน่ใจ ห้ามมั่ว ให้ตอบว่า "ขออภัย ยังไม่มีข้อมูลส่วนนี้ ทิ้งคำถามไว้ได้เลย เดี๋ยวเจ้าหน้าที่มาตอบครับ"
+4. ถ้าข้อมูลอ้างอิง **ไม่มี** คำตอบ หรือไม่แน่ใจ ห้าม��ั่ว ให้ตอบว่า "ขออภัย ยังไม่มีข้อมูลส่วนนี้ ทิ้งคำถามไว้ได้เลย เดี๋ยวเจ้าหน้าที่มาตอบครับ"
 5. ห้ามแนะนำให้ผู้ใช้ไปค้นหาเอง พยายามช่วยให้ถึงที่สุด
 6. ไม่ต้องเกริ่นนำยืดเยื้อ เข้าประเด็นเลย
 
@@ -59,13 +60,45 @@ ${contextStr}
             contents: parts
         });
 
-        const response = result.response;
-        return response.text();
+        // result.response โครงสร้างอาจแตกต่างกันตามเวอร์ชันไลบรารี
+        let text = '';
+
+        if (!result) {
+            throw new Error('Empty response from model');
+        }
+
+        const resp = result.response;
+
+        // รองรับหลายรูปแบบของ response
+        if (!resp) {
+            text = JSON.stringify(result);
+        } else if (typeof resp.text === 'function') {
+            text = resp.text();
+        } else if (typeof resp.text === 'string') {
+            text = resp.text;
+        } else if (typeof resp === 'string') {
+            text = resp;
+        } else if (resp.output_text) {
+            text = resp.output_text;
+        } else if (resp.content) {
+            text = resp.content;
+        } else {
+            // พยายามดึง field ที่น่าจะมี
+            text = JSON.stringify(resp);
+        }
+
+        return text;
 
     } catch (error) {
-        console.error('[AI] Error:', error.message);
+        console.error('[AI] Error:', error.message || error);
 
-        if (error.message.includes('429')) {
+        // ถ้าเป็นปัญหา model not found ให้แจ้งใน log และให้คำแนะนำ
+        if (error.message && error.message.includes('not found')) {
+            console.error('[AI] Model not found. Run the list_models.js script to see available models or set GENAI_MODEL env to a supported model name.');
+            return "ขออภัย ระบบจัดการโมเดลยังไม่พร้อม ลองติดต่อผู้ดูแลหรือรอสักครู่ครับ";
+        }
+
+        if (error.message && error.message.includes('429')) {
             return "ขออภัย ตอนนี้มีผู้ใช้งานเยอะ กรุณารอสักครู่แล้วพิมพ์ถามใหม่อีกครั้งค่ะ";
         }
 
