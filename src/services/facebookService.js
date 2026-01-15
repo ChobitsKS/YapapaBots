@@ -17,7 +17,10 @@ const sendText = async (psid, text) => {
         await axios.post(GRAPH_URL, {
             messaging_type: 'RESPONSE',
             recipient: { id: psid },
-            message: { text: text }
+            message: {
+                text: text,
+                metadata: "BOT_REPLY" // เพิ่ม Metadata เพื่อบอกว่าเป็นข้อความจากบอท
+            }
         }, {
             params: { access_token: PAGE_ACCESS_TOKEN }
         });
@@ -44,7 +47,7 @@ const sendTypingAction = async (psid) => {
 
 // ฟังก์ชันตอบกลับเมื่อเกิน Quota หรือมี Error อื่นๆ
 const sendErrorMessage = async (psid) => {
-    await sendText(psid, 'ขออภัย ระบบขัดข้องชั่วคราว กรุณาลองใหม่ในภายหลัง หรือทิ้งข้อความไว้ให้เจ้าหน้าที่ได้เลยครับ');
+    await sendText(psid, 'ขออภัย ตอนนี้มีผู้ใช้งานเยอะ กรุณารอสักครู่แล้วพิมพ์ถามใหม่อีกครั้งค่ะ');
 };
 
 module.exports = {

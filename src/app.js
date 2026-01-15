@@ -52,6 +52,13 @@ app.post('/webhook', async (req, res) => {
                 // ตรวจสอบว่าเป็น Admin Reply หรือไม่ (message_echo)
                 // ถ้าเป็น echo หมายถึงเพจตอบกลับเอง (Admin ตอบ)
                 if (webhook_event.message && webhook_event.message.is_echo) {
+
+                    // เพิ่มการเช็ค Metadata ถ้าเป็น BOT_REPLY ให้ข้ามไป (ไม่นับเป็น Admin Reply)
+                    if (webhook_event.message.metadata === "BOT_REPLY") {
+                        console.log(`[Event] Bot echo to ${webhook_event.recipient.id}, skipping.`);
+                        return;
+                    }
+
                     console.log(`[Event] Admin replied to ${webhook_event.recipient.id}, Handover active.`);
                     // Sender คือ Page ID, Recipient คือ User ID ในกรณี Echo
                     // แต่ Facebook Echo event sender.id มักจะเป็น Page ID
