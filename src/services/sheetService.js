@@ -1,123 +1,82 @@
-/**
- * sheetService.js
- * จัดการดึงข้อมูลจาก Google Sheets + Caching
- */
-
-const { GoogleSpreadsheet } = require('google-spreadsheet');
-const { JWT } = require('google-auth-library');
+const { google } = require('googleapis');
+const NodeCache = require('node-cache');
 require('dotenv').config();
 
-// ตั้งค่า Google Auth
-let jwtClient;
+// ตั้งค่า Cache: เก็บข้อมูล 5 นาที (300 วินาที) ลดการยิง API
+const sheetCache = new NodeCache({ stdTTL: 300 });
 
-// ตรวจสอบว่า GOOGLE_APPLICATION_CREDENTIALS เป็น JSON String หรือ Path
-// ในบาง Environment (เช่น Render) ผู้ใช้มักใส่ JSON Content ลงไปใน Environment Variable ตรงๆ
-const credentialsVar = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-let creds;
+// ตั้งค่า Authentication
+// บน Render: ระบบจะอ่านไฟล์จาก Path ที่ระบุใน GOOGLE_APPLICATION_CREDENTIALS เอง
+const auth = new google.auth.GoogleAuth({
+    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+});
 
-try {
-    // ลอง Parse JSON ดูว่าใช่เนื้อหา Key หรือไม่
-    creds = JSON.parse(credentialsVar);
-} catch (e) {
-    // ถ้า Parse ไม่ผ่าน แสดงว่าเป็น File Path หรือ undefined
-    // ให้ library จัดการเอง (โหลดจาก path)
-}
-
-if (creds) {
-    jwtClient = new JWT({
-        email: creds.client_email,
-        key: creds.private_key,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-} else if (credentialsVar) {
-    // กรณีเป็น File Path
-    try {
-        const fileCreds = require(credentialsVar);
-        jwtClient = new JWT({
-            email: fileCreds.client_email,
-            key: fileCreds.private_key,
-            scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-        });
-    } catch (e) {
-        console.error("Error loading credentials from path:", e);
-    }
-}
-
-const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, jwtClient);
-
-// Cache System
-// Map<Keyword, { data: Row[], timestamp: number }>
-const cache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 นาที
+const sheets = google.sheets({ version: 'v4', auth });
 
 /**
- * ค้นหาข้อมูลจาก Google Sheets
- * @param {string} userMessage ข้อความของผู้ใช้ (ใช้ตัด keyword)
- * @returns {Promise<string[]>} ข้อมูลที่เกี่ยวข้อง (เป็น Array ของ String)
+ * ดึงข้อมูลทั้งหมดจาก Google Sheets (มี Cache)
  */
-async function searchKnowledgeBase(userMessage) {
+async function getAllData() {
+    const cacheKey = 'all_sheet_data';
+    const cachedData = sheetCache.get(cacheKey);
+
+    // 1. ถ้ามีใน Cache ให้ใช้เลย
+    if (cachedData) {
+        console.log('📦 [Sheet] ใช้ข้อมูลจาก Cache');
+        return cachedData;
+    }
+
+    // 2. ถ้าไม่มี ให้ดึงจาก Google API
     try {
-        // 1. ลองหาใน Cache (แบบง่ายๆ ไปก่อนคือ cache based on exact user message หรือ keyword)
-        // เพื่อความง่ายและแม่นยำในบริบทนี้ เราจะ Cache เป็น "All Data" ถ้า Sheet ไม่ใหญ่
-        // หรือถ้า Sheet ใหญ่ เราจะ Cache based on searched keyword.
-        // สมมติว่า Sheet ไม่ใหญ่มาก (ไม่เกิน 1000 แถว) -> Load All & Memory Filter คือเร็วสุดและประหยัด Quota สุด
+        if (!process.env.GOOGLE_SHEET_ID) throw new Error('ไม่พบ GOOGLE_SHEET_ID');
 
-        const cacheKey = 'FULL_SHEET_DATA';
-        let rowsData = [];
-
-        if (cache.has(cacheKey)) {
-            const cached = cache.get(cacheKey);
-            if (Date.now() - cached.timestamp < CACHE_DURATION) {
-                console.log('[Sheet] Used Cache');
-                rowsData = cached.data;
-            }
-        }
-
-        if (rowsData.length === 0) {
-            console.log('[Sheet] Fetching from API...');
-            await doc.loadInfo();
-            const sheet = doc.sheetsByIndex[0]; // อ่าน Sheet แรก
-            const rows = await sheet.getRows();
-
-            // แปลงเป็น String array เพื่อเก็บใน Cache
-            // สมมติ Column A = คำถาม/หัวข้อ, B = คำตอบ/รายละเอียด
-            rowsData = rows.map(row => {
-                const header = sheet.headerValues;
-                // ดึงทุก column มาต่อกัน
-                return header.map(h => `${h}: ${row.get(h)}`).join(' | ');
-            });
-
-            // Update Cache
-            cache.set(cacheKey, { data: rowsData, timestamp: Date.now() });
-        }
-
-        // 2. Filter หาแถวที่เกี่ยวข้อง (Simple Keyword Matching)
-        // ตัด Stop words หรือวิเคราะห์ keyword จริงจังต้องใช้ NLP แต่ที่นี้เอา Simple Text Match
-        const keywords = userMessage.split(' ').filter(w => w.length > 2);
-
-        let matchedRows = rowsData.filter(rowStr => {
-            // ตรวจสอบว่า keyword ปรากฏใน rowStr บ้างไหม
-            return keywords.some(kw => rowStr.includes(kw));
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: process.env.GOOGLE_SHEET_ID,
+            range: 'Sheet1!A:E', // ปรับ Range ตามข้อมูลจริงใน Sheet
         });
 
-        // ถ้าหาไม่เจอเลย ให้ส่งกลับมาบ้างแบบ random หรือ default (แต่ใน prompt บอกให้ค้นที่เกี่ยวข้อง)
-        // ถ้าไม่มี keyword match เลย อาจจะ return rowsData บางส่วนเพื่อให้ AI มี context บ้าง (เช่น ข้อมูลทั่วไป)
-        // แต่เพื่อความประหยัด Token เอาเฉพาะที่ match
-
-        if (matchedRows.length === 0) {
-            // กรณีไม่ตรงเลย อาจจะส่งข้อมูล Top 5 แถวแรกไปเป็น Context พื้นฐาน
-            matchedRows = rowsData.slice(0, 5);
-        }
-
-        // 3. Limit 5 แถว
-        return matchedRows.slice(0, 5);
-
+        const rows = response.data.values || [];
+        // แปลงแถวเป็น String เพื่อให้ Search ง่าย
+        const formattedData = rows.map(row => row.join(' ')); 
+        
+        // เก็บลง Cache
+        sheetCache.set(cacheKey, formattedData);
+        console.log('🌐 [Sheet] ดึงข้อมูลใหม่จาก Google API สำเร็จ');
+        
+        return formattedData;
     } catch (error) {
-        console.error('[Sheet] Error:', error.message);
-        return []; // กรณี Error ให้ Return array ว่าง (Gemini จะตอบด้วยความรู้ตัวเอง หรือบอกไม่รู้)
+        console.error('❌ [Sheet Error]:', error.message);
+        return [];
     }
 }
 
-module.exports = {
-    searchKnowledgeBase
-};
+/**
+ * ค้นหาข้อมูลที่ตรงกับ Keyword (Smart Search)
+ * คืนค่าไม่เกิน 5 แถว
+ */
+async function searchContext(userQuery) {
+    const allRows = await getAllData();
+    if (!userQuery || allRows.length === 0) return [];
+
+    const queryWords = userQuery.toLowerCase().split(/\s+/);
+
+    // ให้คะแนนความเหมือน (Match Score)
+    const scoredRows = allRows.map(row => {
+        const rowLower = row.toLowerCase();
+        let score = 0;
+        queryWords.forEach(word => {
+            if (rowLower.includes(word)) score++;
+        });
+        return { text: row, score };
+    });
+
+    // กรองเอาเฉพาะที่มีคะแนน > 0 และเอา Top 5
+    return scoredRows
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
+        .map(item => item.text)
+        .join('\n');
+}
+
+module.exports = { searchContext };

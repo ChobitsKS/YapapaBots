@@ -1,105 +1,70 @@
 /**
- * sessionService.js
- * จัดการ Session ของผู้ใช้แต่ละคน (Memory & Handover State)
+ * Memory เก็บข้อมูล Session ของผู้ใช้
+ * Key: PSID (Facebook User ID)
  */
-
-// เก็บ Session ใน Memory (ถ้า Production จริงแนะนำใช้ Redis)
-// Key: PSID (User ID), Value: Session Object
 const sessions = new Map();
 
-// ระยะเวลา Handover (Admin Reply → Bot Pause) ที่จะให้บอทกลับมาทำงานอัตโนมัติ (1 นาที)
-const IDLE_TIMEOUT = 60 * 1000; 
+const HANDOVER_TIMEOUT = 60 * 1000; // 1 นาที (หน่วย ms)
 
-/**
- * โครงสร้าง Session Object:
- * {
- *   mode: 'BOT' | 'HUMAN',    // โหมดปัจจุบัน
- *   history: [],              // ประวัติการสนทนา (User + Bot)
- *   lastInteraction: Date,    // เวลาล่าสุดที่มี activity
- *   timer: TimeoutID          // ตัวจับเวลาสำหรับ Reset mode
- * }
- */
-
-// ดึง Session ของผู้ใช้
-const getSession = (psid) => {
+function getSession(psid) {
     if (!sessions.has(psid)) {
         sessions.set(psid, {
-            mode: 'BOT',
-            history: [],
-            lastInteraction: Date.now(),
-            timer: null
+            history: [],           // ประวัติการคุย
+            lastActivity: Date.now(),
+            isBotPaused: false     // สถานะว่าบอทโดนปิดปากหรือไม่
         });
     }
     return sessions.get(psid);
-};
+}
 
-// อัปเดตเวลาล่าสุด
-const touchSession = (psid) => {
+// อัปเดตเวลาล่าสุดที่ User มีการเคลื่อนไหว
+function updateActivity(psid) {
     const session = getSession(psid);
-    session.lastInteraction = Date.now();
-    
-    // ถ้าอยู่ในโหมด HUMAN และมีการเคลื่อนไหว (เช่น Admin พิมพ์ หรือ User พิมพ์)
-    // ให้ reset ตัวนับเวลาถอยหลังใหม่
-    if (session.mode === 'HUMAN') {
-        resetIdleTimer(psid);
+    session.lastActivity = Date.now();
+}
+
+// เพิ่มประวัติการคุย (จำแค่ 10 ข้อความล่าสุด)
+function addHistory(psid, role, message) {
+    const session = getSession(psid);
+    if (session.history.length >= 10) {
+        session.history.shift(); // ลบเก่าสุดออก
     }
-};
+    session.history.push({ role, parts: [{ text: message }] });
+}
 
-// เพิ่มประวัติการสนทนา
-const addHistory = (psid, userMsg, botMsg) => {
+// เช็คว่าบอทควรตอบหรือไม่ (Logic สำคัญของ Handover)
+function shouldBotReply(psid) {
     const session = getSession(psid);
-    session.history.push({ role: 'user', content: userMsg });
-    session.history.push({ role: 'model', content: botMsg });
-    
-    // จำกัดความยาว history (เช่น 10 คู่ล่าสุด) เพื่อประหยัด Token
-    if (session.history.length > 20) {
-        session.history = session.history.slice(session.history.length - 20);
+    const now = Date.now();
+
+    // กรณีปกติ: บอทไม่ถูกหยุด -> ตอบได้
+    if (!session.isBotPaused) {
+        return true;
     }
-};
 
-// เปลี่ยนโหมดเป็น HUMAN (Admin เข้ามาตอบ)
-const setHumanMode = (psid) => {
+    // กรณีถูกหยุด: เช็คว่า Admin หายไปเกิน 1 นาทีหรือยัง
+    if (now - session.lastActivity > HANDOVER_TIMEOUT) {
+        console.log(`🤖 [Handover] หมดเวลา 1 นาที บอทกลับมาทำงานสำหรับ User: ${psid}`);
+        session.isBotPaused = false; // ปลดล็อค
+        return true;
+    }
+
+    // ยังไม่ครบ 1 นาที -> บอทเงียบ
+    return false;
+}
+
+// เรียกเมื่อ Admin เข้ามาตอบ (หยุดบอททันที)
+function handleAdminIntervention(psid) {
     const session = getSession(psid);
-    session.mode = 'HUMAN';
-    console.log(`[Session] User ${psid} switched to HUMAN mode.`);
-    resetIdleTimer(psid);
-};
-
-// เปลี่ยนโหมดเป็น BOT
-const setBotMode = (psid) => {
-    const session = getSession(psid);
-    session.mode = 'BOT';
-    if (session.timer) clearTimeout(session.timer);
-    console.log(`[Session] User ${psid} switched back to BOT mode.`);
-};
-
-// ตัวจับเวลา Reset กลับเป็น Bot
-const resetIdleTimer = (psid) => {
-    const session = getSession(psid);
-    if (session.timer) clearTimeout(session.timer);
-    
-    session.timer = setTimeout(() => {
-        setBotMode(psid);
-    }, IDLE_TIMEOUT);
-};
-
-// เช็คว่าบอทควรตอบหรือไม่
-const shouldBotReply = (psid) => {
-    const session = getSession(psid);
-    return session.mode === 'BOT';
-};
-
-// ดึง History สำหรับส่งให้ AI
-const getHistory = (psid) => {
-    return getSession(psid).history;
-};
+    console.log(`👨‍💻 [Handover] Admin มาตอบ! บอทหยุดทำงานสำหรับ User: ${psid}`);
+    session.isBotPaused = true;
+    session.lastActivity = Date.now();
+}
 
 module.exports = {
     getSession,
-    touchSession,
+    updateActivity,
     addHistory,
-    setHumanMode,
-    setBotMode,
     shouldBotReply,
-    getHistory
+    handleAdminIntervention
 };
